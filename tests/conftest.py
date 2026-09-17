@@ -59,5 +59,5 @@ def make_service():
 
 
 TEST_LLM_SETTINGS = LLMSettings(
-    provider="scripted", label="Scripted", base_url="", model="fixture", api_key=None, timeout_seconds=1, problem=None
+    provider="scripted", label="Scripted", base_url="", model="fixture", api_key=None, timeout_seconds=1, extra_body={}, problem=None
 )

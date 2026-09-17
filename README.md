@@ -3,8 +3,9 @@
 A small web app that interviews a user, keeps the answers in an explicit structured
 state, and produces a draft **Personal Wishes Document** (fictional, not legal advice).
 
-Built for the Wenup engineering technical test. The LLM is **Google AI Studio (Gemini)**
-or **NVIDIA NIM**, both through their OpenAI-compatible chat-completions APIs.
+Built for the Wenup engineering technical test. The LLM is **NVIDIA NIM** (tested with
+`nvidia/nemotron-3-super-120b-a12b`) or **Google AI Studio (Gemini)**, both through their
+OpenAI-compatible chat-completions APIs.
 
 ---
 
@@ -34,11 +35,26 @@ pytest
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LLM_PROVIDER` | `gemini` | `gemini` (Google AI Studio) or `nvidia` (NVIDIA NIM) |
-| `LLM_API_KEY` | — | **Required.** Get one at aistudio.google.com/apikey or build.nvidia.com |
-| `LLM_MODEL` | `gemini-2.5-flash` / `meta/llama-3.3-70b-instruct` | Any chat model the provider serves |
+| `LLM_PROVIDER` | `gemini` | `nvidia` (NVIDIA NIM) or `gemini` (Google AI Studio) |
+| `LLM_API_KEY` | — | **Required.** Get one at build.nvidia.com or aistudio.google.com/apikey |
+| `LLM_MODEL` | `nvidia/nemotron-3-super-120b-a12b` / `gemini-2.5-flash` | Any chat model the provider serves |
 | `LLM_BASE_URL` | provider preset | Override for other OpenAI-compatible gateways |
-| `LLM_TIMEOUT_SECONDS` | `60` | Per request |
+| `LLM_TIMEOUT_SECONDS` | `30` | Per attempt. Timeouts, 429s and 5xx responses are retried up to 3 attempts in total |
+| `LLM_EXTRA_BODY` | — | JSON merged into each request, e.g. `{"chat_template_kwargs": {"enable_thinking": false}}` |
+
+**Models tested live on NVIDIA NIM (September 2026).** Each ran a 10-turn scripted conversation
+covering a partial name, a vague answer, a contradiction, a correction, multi-field answers and
+"none".
+
+| Model | Result |
+|---|---|
+| `nvidia/nemotron-3-super-120b-a12b` | **Recommended.** Every extraction correct, including catching the contradiction. About 5–16 s per call. |
+| `nvidia/nemotron-3.5-lightning-30b-a3b` + thinking disabled | Faster (3–10 s), but once invented "no additional wishes"; the validation layer now rejects that. With thinking **on** it took over 2 minutes per call. |
+| `openai/gpt-oss-20b` | Requests hung past 120 s. Not usable at the time. |
+| `meta/llama-3.3-70b-instruct`, `openai/gpt-oss-120b` | `410 Gone`: retired on NIM. |
+
+The NIM free tier often returns `503 Service temporarily overloaded`. The client retries, and if
+it still fails the turn is not saved and the UI asks the user to resend.
 
 `.env` is git-ignored. If the key is missing or wrong, the server still starts: the UI shows a
 banner explaining the problem and the API returns `503 llm_not_configured`.
@@ -75,6 +91,8 @@ One turn:
    - Names and addresses can only contain words the user typed. This stops the model from
      adding a surname or postcode the user never gave ("My brother James" can't become
      "James Smith").
+   - An empty answer for children, gifts or wishes counts only if the quote actually says no or
+     none. A model once recorded "no additional wishes" from "my watch to Tom".
    - Length and item-count limits apply.
 4. **Apply and check consistency.**
    - A correction replaces the old value and is recorded as `corrected`.

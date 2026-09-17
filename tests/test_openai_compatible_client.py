@@ -8,7 +8,7 @@ from app.llm.openai_compatible import OpenAICompatibleClient
 
 SETTINGS = LLMSettings(
     provider="gemini", label="Google AI Studio", base_url="https://llm.test/v1", model="test-model",
-    api_key=SecretStr("secret"), timeout_seconds=5, problem=None,
+    api_key=SecretStr("secret"), timeout_seconds=5, extra_body={"chat_template_kwargs": {"enable_thinking": False}}, problem=None,
 )
 
 
@@ -34,6 +34,7 @@ def test_sends_openai_compatible_request_with_json_mode():
     assert seen["auth"] == "Bearer secret"
     assert seen["body"]["response_format"] == {"type": "json_object"}
     assert seen["body"]["messages"][0] == {"role": "system", "content": "sys"}
+    assert seen["body"]["chat_template_kwargs"] == {"enable_thinking": False}  # LLM_EXTRA_BODY passthrough
 
 
 def test_falls_back_when_json_mode_unsupported():
@@ -52,19 +53,30 @@ def test_falls_back_when_json_mode_unsupported():
 
 @pytest.mark.parametrize(
     ("status", "error"),
-    [(401, LLMConfigurationError), (404, LLMConfigurationError), (429, LLMUnavailableError), (503, LLMUnavailableError)],
+    [(401, LLMConfigurationError), (404, LLMConfigurationError), (410, LLMConfigurationError), (429, LLMUnavailableError), (503, LLMUnavailableError)],
 )
-def test_http_errors_are_classified(status, error):
+def test_http_errors_are_classified(status, error, monkeypatch):
+    monkeypatch.setattr("app.llm.openai_compatible.time.sleep", lambda s: None)
     with pytest.raises(error):
         make_client(lambda r: httpx.Response(status, text="nope")).complete("s", "u", json_output=False, max_tokens=10)
 
 
-def test_timeout_is_unavailable():
+def test_timeout_is_retried_once_then_unavailable():
+    attempts = []
+
     def handler(request):
+        attempts.append(1)
         raise httpx.ReadTimeout("slow", request=request)
 
     with pytest.raises(LLMUnavailableError):
         make_client(handler).complete("s", "u", json_output=False, max_tokens=10)
+    assert len(attempts) == 3
+
+
+def test_transient_server_error_recovers_on_retry(monkeypatch):
+    monkeypatch.setattr("app.llm.openai_compatible.time.sleep", lambda s: None)
+    responses = [httpx.Response(503, text="busy"), ok("hello")]
+    assert make_client(lambda r: responses.pop(0)).complete("s", "u", json_output=False, max_tokens=10) == "hello"
 
 
 def test_missing_key_is_reported_by_settings(monkeypatch):
@@ -78,3 +90,8 @@ def test_missing_key_is_reported_by_settings(monkeypatch):
 
 def test_unknown_provider_is_reported():
     assert "Unknown LLM_PROVIDER" in Settings(_env_file=None, llm_provider="foo", llm_api_key="k").llm().problem
+
+
+def test_invalid_extra_body_is_reported():
+    llm = Settings(_env_file=None, llm_provider="nvidia", llm_api_key="k", llm_extra_body="{not json").llm()
+    assert "LLM_EXTRA_BODY" in llm.problem

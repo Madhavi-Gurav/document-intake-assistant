@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any
 
 import httpx
@@ -13,6 +14,9 @@ from app.llm.base import LLMConfigurationError, LLMError, LLMUnavailableError
 log = logging.getLogger(__name__)
 
 
+MAX_ATTEMPTS = 3  # hosted free tiers often return 503 "overloaded" or stall; brief retries fix most of it
+
+
 class OpenAICompatibleClient:
     def __init__(self, settings: LLMSettings, http: httpx.Client | None = None) -> None:
         if settings.problem or settings.api_key is None:
@@ -21,6 +25,7 @@ class OpenAICompatibleClient:
         self.model = settings.model
         self._url = f"{settings.base_url}/chat/completions"
         self._http = http or httpx.Client(timeout=settings.timeout_seconds)
+        self._extra_body = settings.extra_body
         self._headers = {"Authorization": f"Bearer {settings.api_key.get_secret_value()}"}
         # Not every model behind these gateways supports JSON mode; we find out on first use.
         self._json_mode_supported = True
@@ -31,6 +36,7 @@ class OpenAICompatibleClient:
             "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
             "temperature": 0 if json_output else 0.4,
             "max_tokens": max_tokens,
+            **self._extra_body,
         }
         if json_output and self._json_mode_supported:
             body["response_format"] = {"type": "json_object"}
@@ -54,12 +60,26 @@ class OpenAICompatibleClient:
         return content
 
     def _post(self, body: dict[str, Any]) -> httpx.Response:
-        try:
-            return self._http.post(self._url, json=body, headers=self._headers)
-        except httpx.TimeoutException as exc:
-            raise LLMUnavailableError(f"request to {self.provider} timed out") from exc
-        except httpx.HTTPError as exc:
-            raise LLMUnavailableError(f"could not reach {self.provider}: {exc}") from exc
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            last = attempt == MAX_ATTEMPTS
+            try:
+                response = self._http.post(self._url, json=body, headers=self._headers)
+            except httpx.TimeoutException as exc:
+                if last:
+                    raise LLMUnavailableError(f"request to {self.provider} timed out") from exc
+                log.warning("Request to %s timed out; retrying", self.provider)
+                continue
+            except httpx.HTTPError as exc:
+                if last:
+                    raise LLMUnavailableError(f"could not reach {self.provider}: {exc}") from exc
+                log.warning("Request to %s failed (%s); retrying", self.provider, exc)
+                continue
+            if (response.status_code == 429 or response.status_code >= 500) and not last:
+                log.warning("%s returned HTTP %s; retrying", self.provider, response.status_code)
+                time.sleep(1.5 * attempt)
+                continue
+            return response
+        raise AssertionError("unreachable")
 
     def _raise_for_status(self, response: httpx.Response) -> None:
         status = response.status_code
@@ -68,8 +88,8 @@ class OpenAICompatibleClient:
         detail = f"{self.provider} returned HTTP {status}: {_error_text(response)}"
         if status in (401, 403):
             raise LLMConfigurationError(f"API key rejected. {detail}")
-        if status == 404:
-            raise LLMConfigurationError(f"Model '{self.model}' or endpoint not found. {detail}")
+        if status in (404, 410):
+            raise LLMConfigurationError(f"Model '{self.model}' or endpoint not found (or retired). {detail}")
         if status == 429 or status >= 500:
             raise LLMUnavailableError(detail)
         raise LLMError(detail)

@@ -91,12 +91,44 @@ The reply prompt deliberately never decides *what* to ask. It is given `next_fie
   continuation into a run of spaces, which would have been a syntax error. Spotted in the diff
   and rewritten as a parenthesised condition.
 
-## 6. Verification status (honest)
+## 6. Testing against the real model (NVIDIA NIM)
 
-- `pytest`: all tests pass offline.
-- The UI was checked in a browser: layout, the missing-key banner, and failed-send recovery.
-- **Live model runs:** _to be filled in after running `python -m scripts.check_llm` and a full
-  conversation with the real key. Note which model you used and any extraction mistakes you saw._
+I supplied a NIM key and a code sample for `openai/gpt-oss-20b`, then a streaming sample for
+`nemotron-3.5-lightning`. Claude checked them against a scripted 10-turn conversation. The
+script ran the real `InterviewService` and covered: first name only, "not sure, I have a flat in
+Spain", "no children but … my son Tom", a correction to the executor, multi-field gifts, and
+"none".
+
+- **The key was fine; the models weren't all usable.**
+  - Listing models took 0.6 s.
+  - `gpt-oss-20b` hung past 120 s on a trivial prompt.
+  - The first default, `llama-3.3-70b-instruct`, returned **410 Gone** (retired).
+  - Fixes: 410 now counts as a configuration error, and the default is now
+    `nemotron-3-super-120b-a12b`.
+- **"Thinking" was the cause of the timeouts.** `nemotron-3.5-lightning` with thinking on
+  streamed for 130 s, and its reasoning leaked into `content`. With thinking off it took 3.6 s.
+  Added `LLM_EXTRA_BODY` so provider options like `chat_template_kwargs` can be set without code
+  changes.
+- **The model missed a contradiction, and the prompt was at fault.** Lightning read "I don't
+  have children, but … my son Tom" as has_children=false and ignored Tom, so the app's
+  contradiction rule never fired. Prompt rule 8 ("no children → children []") actively
+  encouraged that. Fixed: rule 10 now says to capture conflicting facts *as stated* and let the
+  application resolve them, and rule 8 was narrowed. After the change, both models flagged the
+  conflict and asked the user.
+- **Validation missed a hallucination.** From "my watch to Tom and my car to Sarah", lightning
+  also returned `additional_wishes: []`. It quoted genuine words from the message, so the
+  evidence check passed. Added a rule: an empty-list answer needs a negation ("no", "none",
+  "don't", …) in the quote. Test: `test_empty_list_requires_the_user_to_say_none`.
+- **The provider is unreliable under load.** It gave frequent `503 Service temporarily
+  overloaded` responses and one 90 s stall. Changes: timeout lowered to 30 s, up to 3 attempts
+  with backoff, and the turn stays atomic, so a failed send can simply be resent.
+- **Another broken scripted edit.** Writing the negation regex through a shell heredoc turned
+  the regex word boundaries (backslash-b) into literal backspace characters, and the new test caught it. It was rewritten from a
+  file instead.
+
+**Result with `nemotron-3-super-120b-a12b`:** all extractions correct across the conversation.
+The contradiction was detected, asked about and resolved. Corrections were recorded as
+corrections, and nothing invented got through. Calls took about 5–16 s each.
 
 ---
 

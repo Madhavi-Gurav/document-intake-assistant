@@ -20,6 +20,11 @@ MAX_LIST_ITEMS = 20
 # or postcode is exactly the kind of invented fact we must not store.
 VERBATIM_FIELDS = {"full_name", "home_address", "children", "executor_name"}
 
+# "None" answers must actually be negative. Seen live: a model recorded additional_wishes=[]
+# from "my watch to Tom and my car to Sarah", quoting genuine words that didn't say "none".
+LIST_FIELDS = {"children", "specific_gifts", "additional_wishes"}
+_NEGATION = re.compile(r"\b(no|none|nothing|not|nope|nil|zero|neither|nor|without|dont)\b|n['’]t\b", re.IGNORECASE)
+
 
 class FieldUpdate(BaseModel):
     field: str
@@ -83,6 +88,10 @@ def validate_updates(
             continue
         if evidence not in latest:
             reject(u, "quoted evidence does not appear in the user's message")
+            continue
+
+        if u.field in LIST_FIELDS and u.value == [] and u.status == "confirmed" and not _NEGATION.search(u.evidence):
+            reject(u, "an empty answer needs the user to have said none")
             continue
 
         texts = [t.strip() for t in _text_values(u)]

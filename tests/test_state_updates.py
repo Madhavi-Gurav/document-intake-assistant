@@ -34,6 +34,16 @@ def test_evidence_match_ignores_case_and_punctuation():
     assert len(accepted) == 1
 
 
+def test_empty_list_requires_the_user_to_say_none():
+    msg = "my watch to Tom and my car to Sarah"
+    accepted, rejected = validate_updates([upd("additional_wishes", [], "my watch to Tom")], msg, msg)
+    assert accepted == [] and "none" in rejected[0].reason
+
+    for said in ["none", "No, nothing else", "I don't have any", "I haven't got children"]:
+        accepted, _ = validate_updates([upd("additional_wishes", [], said)], said, said)
+        assert len(accepted) == 1, said
+
+
 def test_overlong_text_is_rejected():
     long = "x" * 400
     _, rejected = validate_updates([upd("executor_relationship", long, long)], long, long)

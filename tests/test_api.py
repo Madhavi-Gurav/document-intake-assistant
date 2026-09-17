@@ -57,7 +57,7 @@ def test_upstream_failure_returns_502_and_keeps_session_unchanged():
 def test_missing_api_key_starts_app_but_returns_503_on_message():
     settings = LLMSettings(
         provider="gemini", label="Google AI Studio", base_url="https://example", model="m",
-        api_key=None, timeout_seconds=1, problem="LLM_API_KEY is not set.",
+        api_key=None, timeout_seconds=1, extra_body={}, problem="LLM_API_KEY is not set.",
     )
     client = TestClient(create_app(llm_settings=settings))
     health = client.get("/api/health").json()
