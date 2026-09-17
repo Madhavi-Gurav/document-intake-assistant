@@ -1,14 +1,117 @@
-// Thin UI: all state comes from the API; the browser only remembers the session id.
+// Document Intake Assistant — UI.
+// The server owns all state; the browser only remembers the session id and presentation choices.
 (() => {
-  const $ = (id) => document.getElementById(id);
+  "use strict";
+
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+
   const els = {
-    messages: $("messages"), composer: $("composer"), input: $("input"), send: $("send"),
-    fields: $("fields"), json: $("json"), progressBar: $("progress-bar"), progressText: $("progress-text"),
-    doc: $("document"), download: $("download"), banner: $("banner"), llm: $("llm-status"), reset: $("new-session"),
+    messages: $("#messages"), composer: $("#composer"), input: $("#input"), send: $("#send"),
+    suggestions: $("#suggestions"), stepLabel: $("#step-label"), stepCount: $("#step-count"), barFill: $("#bar-fill"),
+    groups: $("#groups"), json: $("#json"), ringFill: $("#ring-fill"), ringText: $("#ring-text"),
+    summaryTitle: $("#summary-title"), summarySub: $("#summary-sub"),
+    detailsView: $("#details-view"), documentView: $("#document-view"), paper: $("#paper"), docStatus: $("#doc-status"),
+    docDot: $("#doc-dot"), mDocDot: $("#m-doc-dot"), mDetailsBadge: $("#m-details-badge"),
+    notice: $("#notice"), toast: $("#toast"), dialog: $("#restart-dialog"),
   };
-  const SESSION_KEY = "intake.sessionId";
-  let view = null;
-  let busy = false;
+
+  // ---- presentation config ------------------------------------------------
+
+  const GROUPS = [
+    { title: "About you", fields: ["full_name", "home_address"] },
+    { title: "Scope", fields: ["covers_worldwide_assets"] },
+    { title: "Family", fields: ["has_children", "children"] },
+    { title: "Executor", fields: ["executor_name", "executor_relationship"] },
+    { title: "Gifts & wishes", fields: ["specific_gifts", "additional_wishes"] },
+  ];
+
+  const LABELS = {
+    full_name: "Full name",
+    home_address: "Home address",
+    covers_worldwide_assets: "Covers assets worldwide",
+    has_children: "Children",
+    children: "Children's names",
+    executor_name: "Executor",
+    executor_relationship: "Relationship to you",
+    specific_gifts: "Specific gifts",
+    additional_wishes: "Additional wishes",
+  };
+
+  // What the progress header says we're currently doing.
+  const TOPICS = {
+    full_name: "Your name", home_address: "Your address", covers_worldwide_assets: "Worldwide assets",
+    has_children: "Children", children: "Your children", executor_name: "Choosing an executor",
+    executor_relationship: "Your executor", specific_gifts: "Specific gifts", additional_wishes: "Final wishes",
+  };
+
+  // One-tap answers for questions that have obvious short replies.
+  const QUICK_REPLIES = {
+    covers_worldwide_assets: ["Yes, all my assets worldwide", "No, not worldwide"],
+    has_children: ["Yes, I have children", "No, I don't have children"],
+    specific_gifts: ["No specific gifts"],
+    additional_wishes: ["No additional wishes"],
+  };
+
+  // Starter text when the user chooses to add or change a detail from the preview.
+  const PREFILL = {
+    full_name: "My full name is ",
+    home_address: "My home address is ",
+    covers_worldwide_assets: "About worldwide assets: ",
+    has_children: "About children: ",
+    children: "My children's names are ",
+    executor_name: "I'd like my executor to be ",
+    executor_relationship: "My executor is my ",
+    specific_gifts: "I'd like to leave ",
+    additional_wishes: "One more wish: ",
+  };
+
+  const ICON = {
+    check: '<svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    alert: '<svg viewBox="0 0 24 24"><path d="M12 7v6M12 17h.01"/></svg>',
+    doc: '<svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M9 12h6M9 15h4"/></svg>',
+    ready: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.8 2.8L16 10"/></svg>',
+    pending: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>',
+  };
+
+  const SESSION_KEY = "wishes.sessionId";
+
+  const ui = {
+    view: null,        // SessionView from the API
+    turn: null,        // details of the latest turn (for "saved" chips and highlights)
+    outbox: null,      // { text, status: "sending" | "failed" }
+    side: "details",   // desktop preview tab
+    mobile: "chat",    // mobile section
+    docUnseen: false,
+  };
+
+  // ---- helpers --------------------------------------------------------------
+
+  function h(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    for (const [k, v] of Object.entries(attrs)) {
+      if (v === false || v == null) continue;
+      if (k === "class") node.className = v;
+      else if (k === "html") node.innerHTML = v; // only used with static ICON markup
+      else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+      else node.setAttribute(k, v === true ? "" : v);
+    }
+    for (const c of children.flat()) if (c != null && c !== false) node.append(c);
+    return node;
+  }
+
+  let toastTimer;
+  function toast(message, kind = "") {
+    els.toast.textContent = message;
+    els.toast.className = `toast show ${kind}`;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => (els.toast.className = "toast"), kind === "error" ? 5000 : 2200);
+  }
+
+  const storage = {
+    get: () => { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } },
+    set: (v) => { try { localStorage.setItem(SESSION_KEY, v); } catch { /* storage unavailable */ } },
+  };
 
   class ApiError extends Error {
     constructor(status, code, message) { super(message); this.status = status; this.code = code; }
@@ -19,216 +122,403 @@
     try {
       res = await fetch(path, {
         method,
-        headers: body ? { "Content-Type": "application/json" } : {},
+        headers: body ? { "Content-Type": "application/json" } : undefined,
         body: body ? JSON.stringify(body) : undefined,
       });
     } catch {
-      throw new ApiError(0, "network", "Can't reach the server. Is it running?");
+      throw new ApiError(0, "network", "Can't reach the server. Check your connection and try again.");
     }
     const data = await res.json().catch(() => null);
     if (!res.ok) {
       const err = data && data.error;
-      throw new ApiError(res.status, err ? err.code : "http_" + res.status, err ? err.message : `Request failed (${res.status})`);
+      throw new ApiError(res.status, err ? err.code : `http_${res.status}`, friendlyError(err ? err.code : "", res.status));
     }
     return data;
   }
 
-  const storage = {
-    get() { try { return localStorage.getItem(SESSION_KEY); } catch { return null; } },
-    set(v) { try { localStorage.setItem(SESSION_KEY, v); } catch { /* private mode */ } },
-  };
-
-  function showBanner(text) { els.banner.textContent = text; els.banner.hidden = !text; }
-
-  function el(tag, cls, text) {
-    const node = document.createElement(tag);
-    if (cls) node.className = cls;
-    if (text !== undefined) node.textContent = text;
-    return node;
+  // Server messages can carry configuration details; users get plain language instead.
+  function friendlyError(code, status) {
+    switch (code) {
+      case "llm_unavailable": return "The assistant is busy right now. Your answers are safe — please try again.";
+      case "malformed_model_response": return "The assistant got a bit confused. Please try again, or rephrase.";
+      case "llm_not_configured": return "The assistant isn't connected yet. Please contact the site owner.";
+      case "session_not_found": return "Your session expired, so we've started a fresh one.";
+      case "invalid_request": return "That message couldn't be sent. Please check it and try again.";
+      default: return status >= 500 ? "Something went wrong on our side. Please try again." : "Something went wrong. Please try again.";
+    }
   }
 
   function formatValue(name, value) {
     if (value === null || value === undefined) return null;
-    if (typeof value === "boolean") return value ? "Yes" : "No";
+    if (typeof value === "boolean") {
+      if (name === "has_children") return value ? "Yes" : "No children";
+      return value ? "Yes" : "No";
+    }
     if (Array.isArray(value)) {
       if (!value.length) return "None";
-      if (name === "specific_gifts") return value.map((g) => `${g.item} → ${g.recipient}`).join("; ");
-      return value.join(", ");
+      const items = name === "specific_gifts" ? value.map((g) => `${g.item} → ${g.recipient}`) : value;
+      return items.length === 1 ? items[0] : h("ul", {}, items.map((t) => h("li", {}, t)));
     }
     return String(value);
   }
 
-  // ---- rendering -------------------------------------------------------
+  const isRequired = (name) => ui.view.fields.find((f) => f.name === name)?.required ?? true;
 
-  function renderMessages(messages) {
-    els.messages.replaceChildren(...messages.map((m) => el("div", `msg ${m.role}`, m.content)));
+  // ---- rendering ------------------------------------------------------------
+
+  function render() {
+    renderProgress();
+    renderMessages();
+    renderSuggestions();
+    renderDetails();
+    renderDocument();
+    renderTabs();
+  }
+
+  function renderProgress() {
+    const { progress, state } = ui.view;
+    const pct = progress.required ? (progress.confirmed / progress.required) * 100 : 0;
+    els.barFill.style.width = `${pct}%`;
+    els.stepCount.textContent = `${progress.confirmed} of ${progress.required} details`;
+    const next = progress.next_field;
+    if (!next) els.stepLabel.textContent = "All details collected";
+    else if (state[next].status === "unconfirmed") els.stepLabel.textContent = `Checking: ${TOPICS[next]}`;
+    else els.stepLabel.textContent = TOPICS[next];
+  }
+
+  function renderMessages() {
+    const { messages, progress } = ui.view;
+    const nodes = messages.map((m, i) => messageNode(m.role, m.content, i === messages.length - 1 ? ui.turn : null));
+
+    if (!progress.next_field && !ui.outbox) {
+      nodes.push(h("div", { class: "done-card" },
+        h("div", {}, h("strong", {}, "Your draft is ready"), h("span", {}, "Review it, save it as a PDF, or tell me anything you'd like to change.")),
+        h("button", { class: "btn btn-primary btn-sm", type: "button", onclick: () => showDocument() }, "View document"),
+      ));
+    }
+
+    if (ui.outbox) {
+      const failed = ui.outbox.status === "failed";
+      nodes.push(h("div", { class: `msg user ${ui.outbox.status}` },
+        h("div", { class: "msg-body" },
+          h("div", { class: "bubble" }, ui.outbox.text),
+          failed && h("div", { class: "msg-status" }, "Not sent",
+            h("button", { class: "link-btn", type: "button", onclick: () => sendMessage(ui.outbox.text) }, "Retry"),
+            h("button", { class: "link-btn", type: "button", onclick: editFailed }, "Edit")),
+        )));
+      if (!failed) nodes.push(h("div", { class: "msg assistant typing", "aria-label": "Assistant is typing" },
+        avatar(), h("div", { class: "msg-body" }, h("div", { class: "bubble" }, h("i"), h("i"), h("i")))));
+    }
+
+    els.messages.replaceChildren(...nodes);
     els.messages.scrollTop = els.messages.scrollHeight;
   }
 
-  function renderTurnMeta(turn) {
-    const chips = [];
-    const label = (f) => (view.fields.find((x) => x.name === f) || { label: f }).label;
-    for (const c of turn.changes) {
-      const text = { added: "Saved", corrected: "Corrected", flagged: "Needs confirmation", confirmed: "Confirmed" }[c.kind];
-      chips.push(el("span", `chip ${c.kind}`, `${text}: ${label(c.field)}`));
-    }
-    for (const r of turn.rejected) {
-      const chip = el("span", "chip rejected", `Not saved: ${label(r.field)}`);
-      chip.title = r.reason;
-      chips.push(chip);
-    }
-    if (!chips.length) return;
-    const meta = el("div", "turn-meta");
-    meta.append(...chips);
-    // Place the chips just above the assistant's reply they relate to.
-    els.messages.insertBefore(meta, els.messages.lastElementChild);
+  function avatar() {
+    return h("span", { class: "avatar", "aria-hidden": "true", html: ICON.doc });
   }
 
-  function renderFields(changedFields = []) {
-    const { state, fields, progress } = view;
-    els.fields.replaceChildren(...fields.map((f) => {
-      const tracked = state[f.name];
-      const li = el("li", "field" + (f.required ? "" : " not-required"));
-      if (changedFields.includes(f.name)) li.classList.add("flash");
-      li.append(el("span", "field-label", f.label));
+  function messageNode(role, text, turn) {
+    const body = h("div", { class: "msg-body" }, h("div", { class: "bubble" }, text));
+    if (role === "assistant" && turn) {
+      // Only user-meaningful outcomes; internal validation detail stays out of the UI.
+      const saved = turn.changes.filter((c) => c.status === "confirmed" && isRequired(c.field));
+      const flagged = turn.changes.filter((c) => c.status === "unconfirmed");
+      if (saved.length || flagged.length) {
+        body.prepend(h("div", { class: "updates" },
+          [...new Map(saved.map((c) => [c.field, c])).values()].map((c) =>
+            h("span", { class: "update", html: ICON.check }, c.kind === "corrected" ? `Updated ${LABELS[c.field].toLowerCase()}` : LABELS[c.field])),
+          [...new Map(flagged.map((c) => [c.field, c])).values()].map((c) =>
+            h("span", { class: "update flagged", html: ICON.alert }, `Check ${LABELS[c.field].toLowerCase()}`)),
+        ));
+      }
+    }
+    return h("div", { class: `msg ${role}` }, role === "assistant" && avatar(), body);
+  }
 
-      const valueText = formatValue(f.name, tracked.value);
-      const value = el("span", "field-value");
-      if (!f.required) value.append(el("span", "empty", "Not applicable"));
-      else if (valueText === null) value.append(el("span", "empty", "—"));
-      else value.textContent = valueText;
-      li.append(value);
+  function renderSuggestions() {
+    const next = ui.view.progress.next_field;
+    const busy = !!ui.outbox && ui.outbox.status === "sending";
+    let chips = [];
+    if (next && QUICK_REPLIES[next] && !ui.outbox) {
+      chips = QUICK_REPLIES[next].map((text) =>
+        h("button", { class: "suggestion", type: "button", disabled: busy, onclick: () => sendMessage(text) }, text));
+    }
+    els.suggestions.replaceChildren(...chips);
+  }
 
-      const pillClass = { confirmed: "pill-ok", unconfirmed: "pill-warn", missing: "pill-missing" }[tracked.status];
-      li.append(el("span", `pill ${pillClass}`, f.required ? tracked.status : "n/a"));
-      if (tracked.note && tracked.status === "unconfirmed") li.append(el("span", "field-note", tracked.note));
-      return li;
+  function renderDetails() {
+    const { state, progress, confirmed_state: confirmed } = ui.view;
+    const changed = new Set((ui.turn?.changes || []).map((c) => c.field));
+
+    const circumference = 119.4;
+    const ratio = progress.required ? progress.confirmed / progress.required : 0;
+    els.ringFill.style.strokeDashoffset = String(circumference * (1 - ratio));
+    els.ringText.textContent = `${progress.confirmed}/${progress.required}`;
+
+    const needsCheck = progress.outstanding.filter((f) => state[f].status === "unconfirmed").length;
+    if (!progress.next_field) {
+      els.summaryTitle.textContent = "Everything's in place";
+      els.summarySub.textContent = "You can still change any detail below.";
+    } else if (progress.confirmed === 0 && !needsCheck) {
+      els.summaryTitle.textContent = "Let's begin";
+      els.summarySub.textContent = "Your answers will appear here as you chat.";
+    } else {
+      const left = progress.outstanding.length;
+      els.summaryTitle.textContent = `${left} ${left === 1 ? "detail" : "details"} to go`;
+      els.summarySub.textContent = needsCheck ? `${needsCheck} ${needsCheck === 1 ? "answer needs" : "answers need"} a quick check.` : "Keep chatting — or add details directly below.";
+    }
+
+    els.groups.replaceChildren(...GROUPS.map((group) => {
+      const rows = group.fields.filter(isRequired).map((name) => {
+        const f = state[name];
+        const isCurrent = name === progress.next_field;
+        const value = f.status === "missing" ? "Not answered yet" : formatValue(name, f.value) ?? "Needs a clearer answer";
+        return h("div", {
+          class: `row ${f.status}${isCurrent ? " current" : ""}${changed.has(name) ? " flash" : ""}`,
+          onanimationend: (e) => e.currentTarget.classList.remove("flash"),
+        },
+          h("span", { class: "row-icon", html: f.status === "confirmed" ? ICON.check : f.status === "unconfirmed" ? ICON.alert : "" }),
+          h("div", {},
+            h("div", { class: "row-label" }, LABELS[name],
+              isCurrent && f.status !== "unconfirmed" && h("span", { class: "pill" }, "Now"),
+              f.status === "unconfirmed" && h("span", { class: "pill warn" }, "Check")),
+            h("div", { class: "row-value" }, value),
+            f.status === "unconfirmed" && f.note && h("div", { class: "row-note" }, f.note)),
+          h("button", { class: "row-action", type: "button", onclick: () => prefill(name) },
+            f.status === "confirmed" ? "Change" : f.status === "unconfirmed" ? "Fix" : "Add"));
+      });
+      return h("section", { class: "group" }, h("h3", {}, group.title), h("div", { class: "group-card" }, rows));
     }));
 
-    els.json.textContent = JSON.stringify(view.confirmed_state, null, 2);
-    const pct = progress.required ? Math.round((progress.confirmed / progress.required) * 100) : 0;
-    els.progressBar.style.width = pct + "%";
-    els.progressText.textContent = `${progress.confirmed} of ${progress.required} required answers confirmed`;
+    els.json.textContent = JSON.stringify(confirmed, null, 2);
+    const left = progress.outstanding.length;
+    els.mDetailsBadge.hidden = !left;
+    els.mDetailsBadge.textContent = left;
   }
 
   function renderDocument() {
-    const d = view.document;
-    const nodes = [el("h3", null, d.title), el("div", "disclaimer", d.disclaimer)];
-    nodes.push(el("p", "doc-status " + (d.is_complete ? "" : "muted"),
-      d.is_complete ? "✓ All required information collected." : `Incomplete draft — outstanding: ${d.outstanding.join(", ")}`));
+    const d = ui.view.document;
+    els.docStatus.className = `doc-status ${d.is_complete ? "ready" : "progress"}`;
+    els.docStatus.innerHTML = d.is_complete ? ICON.ready : ICON.pending;
+    els.docStatus.append(d.is_complete
+      ? "Ready to save"
+      : `Draft in progress · ${d.outstanding.length} ${d.outstanding.length === 1 ? "detail" : "details"} missing`);
+
+    const nodes = [
+      h("h2", {}, "Personal Wishes Document"),
+      h("p", { class: "paper-sub" }, d.is_complete ? "Draft" : "Draft — incomplete"),
+      h("div", { class: "disclaimer" }, d.disclaimer),
+    ];
     for (const s of d.sections) {
-      nodes.push(el("h4", null, s.heading));
-      for (const p of s.paragraphs) nodes.push(paragraphWithPlaceholders(p));
+      const isSignature = s.heading.toLowerCase() === "signature";
+      const block = h("section", { class: isSignature ? "signature" : "" },
+        !isSignature && h("h4", {}, s.heading),
+        s.paragraphs.map(paragraph));
+      nodes.push(block);
     }
-    els.doc.replaceChildren(...nodes);
+    els.paper.replaceChildren(...nodes);
   }
 
-  function paragraphWithPlaceholders(text) {
-    const p = el("p");
+  // Placeholders like "[not yet provided]" render as soft highlighted tags.
+  function paragraph(text) {
+    const p = h("p");
     for (const part of text.split(/(\[[^\]]+\])/)) {
       if (!part) continue;
-      p.append(/^\[.*\]$/.test(part) ? el("span", "placeholder", part) : document.createTextNode(part));
+      p.append(/^\[.*\]$/.test(part) ? h("span", { class: "ph" }, part.slice(1, -1)) : document.createTextNode(part));
     }
     return p;
   }
 
-  function render(newView, turn) {
-    view = newView;
-    storage.set(view.session_id);
-    renderMessages(view.messages);
-    if (turn) renderTurnMeta(turn);
-    renderFields(turn ? turn.changes.map((c) => c.field) : []);
-    renderDocument();
+  function renderTabs() {
+    const side = isMobile() && ui.mobile !== "chat" ? ui.mobile : ui.side;
+    els.detailsView.hidden = side !== "details";
+    els.documentView.hidden = side !== "document";
+    $$(".side-tabs [data-side]").forEach((b) => b.setAttribute("aria-selected", String(b.dataset.side === ui.side)));
+    $$(".mobile-tabs [data-mobile]").forEach((b) => b.classList.toggle("active", b.dataset.mobile === ui.mobile));
+    const viewingDoc = isMobile() ? ui.mobile === "document" : ui.side === "document";
+    if (viewingDoc) ui.docUnseen = false;
+    els.docDot.hidden = !ui.docUnseen;
+    els.mDocDot.hidden = !ui.docUnseen;
   }
 
-  // ---- actions ---------------------------------------------------------
+  // ---- interactions ---------------------------------------------------------
 
-  function setBusy(value) {
-    busy = value;
-    els.send.disabled = value;
-    els.input.disabled = value;
+  const isMobile = () => window.matchMedia("(max-width: 900px)").matches;
+
+  function setSide(tab) {
+    ui.side = tab;
+    renderTabs();
+  }
+
+  function setMobile(section) {
+    ui.mobile = section;
+    document.body.dataset.mobileView = section;
+    if (section !== "chat") ui.side = section;
+    renderTabs();
+    if (section === "chat") els.messages.scrollTop = els.messages.scrollHeight;
+  }
+
+  function showDocument() {
+    if (isMobile()) setMobile("document");
+    else setSide("document");
+  }
+
+  function prefill(field) {
+    if (isMobile()) setMobile("chat");
+    els.input.value = PREFILL[field] || "";
+    autosize();
+    els.input.focus();
+    els.input.setSelectionRange(els.input.value.length, els.input.value.length);
+  }
+
+  function editFailed() {
+    els.input.value = ui.outbox.text;
+    ui.outbox = null;
+    render();
+    autosize();
+    els.input.focus();
+  }
+
+  function autosize() {
+    els.input.style.height = "auto";
+    els.input.style.height = `${Math.min(els.input.scrollHeight, 140)}px`;
+    els.input.style.overflowY = els.input.scrollHeight > 140 ? "auto" : "hidden";
+    els.send.disabled = !els.input.value.trim() || ui.outbox?.status === "sending";
+  }
+
+  function applyView(view, turn = null) {
+    const docChanged = ui.view && JSON.stringify(ui.view.document.sections) !== JSON.stringify(view.document.sections);
+    ui.view = view;
+    ui.turn = turn;
+    storage.set(view.session_id);
+    if (docChanged) {
+      const viewingDoc = isMobile() ? ui.mobile === "document" : ui.side === "document";
+      ui.docUnseen = !viewingDoc;
+    }
+    render();
+  }
+
+  async function sendMessage(text) {
+    text = text.trim();
+    if (!text || !ui.view || ui.outbox?.status === "sending") return;
+    ui.outbox = { text, status: "sending" };
+    els.input.value = "";
+    autosize();
+    render();
+    try {
+      const res = await api("POST", `/api/sessions/${encodeURIComponent(ui.view.session_id)}/messages`, { message: text });
+      ui.outbox = null;
+      applyView(res.session, res.turn);
+    } catch (e) {
+      if (e.code === "session_not_found") {
+        ui.outbox = null;
+        await startSession();
+        els.input.value = text;
+        autosize();
+      } else {
+        ui.outbox = { text, status: "failed" };
+        render();
+      }
+      toast(e.message, "error");
+    } finally {
+      autosize();
+      if (!isMobile()) els.input.focus();
+    }
   }
 
   async function startSession() {
-    showBanner("");
-    render(await api("POST", "/api/sessions"));
+    ui.outbox = null;
+    ui.docUnseen = false;
+    applyView(await api("POST", "/api/sessions"));
   }
 
   async function loadSession() {
     const id = storage.get();
     if (id) {
-      try { return render(await api("GET", `/api/sessions/${encodeURIComponent(id)}`)); }
-      catch (e) { if (e.status !== 404) throw e; } // server restarted: sessions are in memory
+      try {
+        applyView(await api("GET", `/api/sessions/${encodeURIComponent(id)}`));
+        return;
+      } catch (e) {
+        if (e.status !== 404) throw e; // sessions are in memory, so a server restart clears them
+      }
     }
     await startSession();
   }
 
-  async function sendMessage(text) {
-    if (busy || !view) return;
-    setBusy(true);
-    showBanner("");
-    els.messages.append(el("div", "msg user", text), el("div", "msg assistant typing", "Thinking…"));
-    els.messages.scrollTop = els.messages.scrollHeight;
-    els.input.value = "";
-    try {
-      const res = await api("POST", `/api/sessions/${encodeURIComponent(view.session_id)}/messages`, { message: text });
-      render(res.session, res.turn);
-    } catch (e) {
-      // The turn was not committed server-side: restore the transcript and the user's text.
-      renderMessages(view.messages);
-      els.input.value = text;
-      if (e.code === "session_not_found") { await startSession(); els.input.value = text; }
-      showBanner(e.message);
-    } finally {
-      setBusy(false);
-      els.input.focus();
-    }
-  }
-
   async function checkHealth() {
     try {
-      const h = await api("GET", "/api/health");
-      els.llm.textContent = `${h.llm_provider} · ${h.llm_model}`;
-      els.llm.className = "llm-status " + (h.llm_configured ? "ok" : "bad");
-      if (!h.llm_configured) showBanner(`Model not configured: ${h.llm_problem}`);
-    } catch (e) {
-      els.llm.textContent = "Server unreachable";
-      els.llm.className = "llm-status bad";
+      const health = await api("GET", "/api/health");
+      if (!health.llm_configured) {
+        console.warn("LLM not configured:", health.llm_problem);
+        els.notice.textContent = "The assistant isn't connected to a language model yet, so replies are unavailable. See the README to add an API key.";
+        els.notice.hidden = false;
+      }
+    } catch {
+      /* the session request below will surface connectivity problems */
     }
   }
 
-  // ---- wiring ----------------------------------------------------------
+  // ---- wiring ---------------------------------------------------------------
 
   els.composer.addEventListener("submit", (e) => {
     e.preventDefault();
-    const text = els.input.value.trim();
-    if (text) sendMessage(text);
+    sendMessage(els.input.value);
   });
+  els.input.addEventListener("input", autosize);
   els.input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); els.composer.requestSubmit(); }
+    if (e.key === "Enter" && !e.shiftKey && !e.isComposing) {
+      e.preventDefault();
+      sendMessage(els.input.value);
+    }
   });
-  els.reset.addEventListener("click", () => {
-    if (confirm("Start a new session? The current answers will be discarded.")) startSession().catch((e) => showBanner(e.message));
+
+  $$(".side-tabs [data-side]").forEach((b) => b.addEventListener("click", () => setSide(b.dataset.side)));
+  $$(".mobile-tabs [data-mobile]").forEach((b) => b.addEventListener("click", () => setMobile(b.dataset.mobile)));
+  window.matchMedia("(max-width: 900px)").addEventListener("change", () => ui.view && renderTabs());
+
+  $("#restart").addEventListener("click", () => {
+    if (typeof els.dialog.showModal === "function") els.dialog.showModal();
+    else if (confirm("Start over? Your current answers will be cleared.")) startSession();
   });
-  document.querySelectorAll(".seg").forEach((btn) => btn.addEventListener("click", () => {
-    document.querySelectorAll(".seg").forEach((b) => b.classList.toggle("active", b === btn));
-    els.fields.hidden = btn.dataset.view !== "fields";
-    els.json.hidden = btn.dataset.view !== "json";
-  }));
-  els.download.addEventListener("click", () => {
-    if (!view) return;
-    const blob = new Blob([view.document.markdown], { type: "text/markdown" });
-    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: "personal-wishes-draft.md" });
+  els.dialog.addEventListener("close", async () => {
+    if (els.dialog.returnValue !== "confirm") return;
+    try {
+      await startSession();
+      setMobile("chat");
+      toast("Started a new draft");
+    } catch (e) {
+      toast(e.message, "error");
+    }
+  });
+
+  $("#copy").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(ui.view.document.markdown);
+      toast("Document copied");
+    } catch {
+      toast("Couldn't copy — try Download instead", "error");
+    }
+  });
+  $("#download").addEventListener("click", () => {
+    const blob = new Blob([ui.view.document.markdown], { type: "text/markdown" });
+    const a = h("a", { href: URL.createObjectURL(blob), download: "personal-wishes-draft.md" });
+    document.body.append(a);
     a.click();
-    URL.revokeObjectURL(a.href);
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   });
+  $("#print").addEventListener("click", () => window.print());
 
   (async () => {
     await checkHealth();
-    // Keep the banner from health if the model isn't configured.
-    const banner = els.banner.textContent;
-    try { await loadSession(); } catch (e) { showBanner(e.message); return; }
-    if (banner) showBanner(banner);
-    els.input.focus();
+    try {
+      await loadSession();
+      autosize();
+      if (!isMobile()) els.input.focus();
+    } catch (e) {
+      els.messages.replaceChildren(h("div", { class: "msg assistant" }, avatar(),
+        h("div", { class: "msg-body" }, h("div", { class: "bubble" }, e.message))));
+    }
   })();
 })();

@@ -111,6 +111,24 @@ A turn is **atomic**. If extraction fails (timeout, rate limit, bad output twice
 saved, not even the user's message. The API returns an error and the UI puts the text back in
 the input box so the user can resend.
 
+### User interface
+
+- **Chat:**
+  - A progress header shows the current topic.
+  - Quick-reply buttons appear for yes/no and "none" questions.
+  - Each reply shows small "saved" chips.
+  - A typing indicator shows while the assistant works.
+  - A failed send keeps the message with **Retry** and **Edit** buttons.
+- **Your details:** answers grouped by topic, each marked confirmed, needs a check (with the
+  assistant's question) or not answered. **Change**, **Fix** or **Add** puts starter text into
+  the chat box, so edits go through the same validation as any other message. The raw
+  structured JSON sits in a collapsed "Structured data" section for reviewers.
+- **Draft document:** a paper-style preview with missing values highlighted. You can copy it,
+  download it as Markdown, or **Save PDF** (a print stylesheet that prints only the document).
+- **For users:** plain-language error messages, with provider and config detail kept in server
+  logs. Responsive layout with tabs on phones, dark mode, keyboard shortcuts, and support for
+  reduced motion.
+
 ### Structured state
 
 Every field is tracked as `{value, status, note, evidence}`, where status is `missing`,
@@ -156,7 +174,7 @@ app/
   llm/          provider interface, OpenAI-compatible client, prompts, response contract/parser
   documents/    deterministic document generator
   config.py     env settings and provider presets
-frontend/       static HTML/CSS/JS (no build step)
+frontend/       static HTML/CSS/JS (no build step): chat, live details, document preview
 scripts/        check_llm.py: live smoke test for your key/model
 tests/          pytest suite + fixtures/ (recorded valid, ambiguous and malformed model outputs)
 ```
@@ -191,8 +209,8 @@ test double. This keeps them deterministic and offline. They cover:
   from a template guarantees it matches the preview and contains no invented clauses.
 - **Evidence and verbatim checks.** A cheap, explainable guard against hallucinated facts. The
   cost: if a model paraphrases its evidence, a correct update can be rejected and the user gets
-  asked again. That failure is safe and visible (a "Not saved" chip in the UI), which is better
-  than silently storing a wrong fact.
+  asked again. That failure is safe: the field stays unanswered and the assistant asks again, which is better
+  than silently storing a wrong fact. Rejections are logged on the server.
 - **JSON mode is a nice extra, not something we depend on.** Not every model on NIM supports
   `response_format`. The client turns it off automatically after a `400` and relies on the
   prompt and the parser instead.

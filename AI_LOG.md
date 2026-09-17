@@ -65,8 +65,8 @@ The reply prompt deliberately never decides *what* to ask. It is given `next_fie
   doesn't catch "My brother James" becoming `"James Smith"`, because the quote is genuine and
   only the *value* is embellished. So second, names and addresses may only contain words the
   user typed somewhere in the conversation. **Trade-off:** a paraphrasing model can cause a
-  false rejection. The UI then shows a "Not saved" chip and the question is asked again, which
-  is the safer failure mode.
+  false rejection. The value isn't saved and the assistant asks the question again, which is the
+  safer failure mode.
 - **Whole-response validation vs per-field.** The obvious approach is to validate the model's
   whole response against one Pydantic model. One badly typed field (e.g. `"has_children": "yes"`)
   would then discard every other correct field in a multi-field answer. So the parser works
@@ -123,12 +123,48 @@ Spain", "no children but … my son Tom", a correction to the executor, multi-fi
   overloaded` responses and one 90 s stall. Changes: timeout lowered to 30 s, up to 3 attempts
   with backoff, and the turn stays atomic, so a failed send can simply be resent.
 - **Another broken scripted edit.** Writing the negation regex through a shell heredoc turned
-  the regex word boundaries (backslash-b) into literal backspace characters, and the new test caught it. It was rewritten from a
-  file instead.
+  the regex word boundaries (backslash-b) into literal backspace characters, and the new test
+  caught it. It was rewritten from a file instead.
 
 **Result with `nemotron-3-super-120b-a12b`:** all extractions correct across the conversation.
 The contradiction was detected, asked about and resolved. Corrections were recorded as
 corrections, and nothing invented got through. Calls took about 5–16 s each.
+
+## 7. UI polish pass
+
+I asked for a more usable, interactive, polished UI that "doesn't expose what isn't needed".
+
+**Removed from the user's view:**
+- The provider and model name in the header
+- Raw validation reasons ("value contains words the user never said…")
+- The "Not saved" chips
+- Status words like `unconfirmed`
+- Server error details. The API no longer puts the config detail into 503 responses; it goes
+  to the server log instead.
+
+**Kept, but tucked away:** the confirmed-state JSON, in a collapsed section. The brief asks for
+a visible structured preview, and reviewers will want to see it.
+
+**Added:**
+- Quick replies for yes/no and "none" questions
+- **Change/Fix/Add** buttons that put starter text into the chat box. Corrections still go
+  through the LLM plus validation, rather than a second path that skips the checks.
+- A typing indicator
+- Retry and Edit on a failed send
+- A completion card
+- A paper-style document with Copy, `.md` and Save PDF (print CSS)
+- Mobile tabs, dark mode
+
+**Verified in the browser against the live model:**
+- A full conversation, from a multi-field first message to "Your draft is ready"
+- An executor correction started from the Change button
+- A simulated network failure, then Retry
+
+**Bugs found during that check:**
+1. The CSS `display` rules on `.notice` and the badge dots overrode the `hidden` attribute, so an
+   empty banner and a stray dot showed up. Fixed with a global `[hidden]` rule.
+2. The "just updated" row highlight replayed every time the user switched tabs.
+3. The finished state showed "View document" twice.
 
 ---
 

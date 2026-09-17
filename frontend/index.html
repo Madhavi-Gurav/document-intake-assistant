@@ -2,57 +2,130 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
   <title>Document Intake Assistant</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%231f6f5c'/><path d='M10 9h9l4 4v10H10z' fill='none' stroke='white' stroke-width='2' stroke-linejoin='round'/><path d='M13 17h7M13 20h5' stroke='white' stroke-width='2' stroke-linecap='round'/></svg>">
   <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
+<body data-mobile-view="chat">
   <header class="topbar">
     <div class="brand">
-      <h1>Document Intake Assistant</h1>
-      <span class="pill pill-warn">Fictional · not legal advice</span>
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z"/><path d="M9 12h6M9 15h4"/></svg>
+      </span>
+      <div>
+        <h1>Document Intake Assistant</h1>
+        <p class="brand-sub">Create a draft Personal Wishes Document through a short conversation</p>
+      </div>
     </div>
     <div class="topbar-actions">
-      <span id="llm-status" class="llm-status">Checking model…</span>
-      <button id="new-session" class="btn btn-ghost" type="button">Start over</button>
+      <span class="tag" title="This app produces a fictional draft for demonstration purposes only.">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5M12 16h.01"/></svg>
+        Fictional · not legal advice
+      </span>
+      <button id="restart" class="btn btn-ghost" type="button">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12a8 8 0 1 0 2.3-5.6"/><path d="M4 4v4h4"/></svg>
+        <span>Start over</span>
+      </button>
     </div>
   </header>
 
-  <div id="banner" class="banner" hidden></div>
+  <div id="notice" class="notice" role="status" hidden></div>
 
-  <main class="layout">
-    <section class="panel chat" aria-label="Conversation">
-      <div id="messages" class="messages" aria-live="polite"></div>
-      <form id="composer" class="composer">
-        <textarea id="input" rows="2" maxlength="2000" placeholder="Type your answer… (Enter to send, Shift+Enter for a new line)" required></textarea>
-        <button id="send" class="btn btn-primary" type="submit">Send</button>
-      </form>
+  <nav class="mobile-tabs" aria-label="Sections">
+    <button type="button" data-mobile="chat" class="active">Chat</button>
+    <button type="button" data-mobile="details">Details <span class="badge" id="m-details-badge" hidden></span></button>
+    <button type="button" data-mobile="document">Document <span class="dot" id="m-doc-dot" hidden></span></button>
+  </nav>
+
+  <main class="workspace">
+    <!-- Conversation -->
+    <section class="pane chat-pane" aria-label="Conversation">
+      <div class="chat-head">
+        <div class="chat-head-text">
+          <span id="step-label" class="step-label">Getting started</span>
+          <span id="step-count" class="step-count"></span>
+        </div>
+        <div class="bar"><div id="bar-fill" class="bar-fill"></div></div>
+      </div>
+
+      <div id="messages" class="messages" role="log" aria-live="polite" aria-relevant="additions">
+        <div class="skeleton"><span></span><span></span></div>
+      </div>
+
+      <div class="composer-wrap">
+        <div id="suggestions" class="suggestions" aria-label="Quick replies"></div>
+        <form id="composer" class="composer" autocomplete="off">
+          <textarea id="input" rows="1" maxlength="2000" placeholder="Type your answer…" aria-label="Your message"></textarea>
+          <button id="send" class="send" type="submit" aria-label="Send message" disabled>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h13M13 6l6 6-6 6"/></svg>
+          </button>
+        </form>
+        <p class="composer-hint"><kbd>Enter</kbd> to send · <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line · you can correct any answer at any time</p>
+      </div>
     </section>
 
-    <section class="panel preview" aria-label="Live preview">
-      <div class="card">
-        <div class="card-head">
-          <h2>Collected information</h2>
-          <div class="segmented" role="tablist">
-            <button type="button" class="seg active" data-view="fields" role="tab">Fields</button>
-            <button type="button" class="seg" data-view="json" role="tab">JSON</button>
+    <!-- Preview -->
+    <aside class="pane side-pane" aria-label="Preview">
+      <div class="side-tabs" role="tablist">
+        <button type="button" role="tab" id="tab-details" data-side="details" aria-selected="true">Your details</button>
+        <button type="button" role="tab" id="tab-document" data-side="document" aria-selected="false">
+          Draft document <span class="dot" id="doc-dot" hidden></span>
+        </button>
+      </div>
+
+      <div id="details-view" class="side-view" role="tabpanel" aria-labelledby="tab-details">
+        <div class="summary">
+          <div class="ring" aria-hidden="true">
+            <svg viewBox="0 0 44 44"><circle class="ring-track" cx="22" cy="22" r="19"/><circle id="ring-fill" class="ring-fill" cx="22" cy="22" r="19"/></svg>
+            <span id="ring-text">0/8</span>
+          </div>
+          <div>
+            <p id="summary-title" class="summary-title">Let's begin</p>
+            <p id="summary-sub" class="summary-sub">Your answers will appear here as you chat.</p>
           </div>
         </div>
-        <div class="progress"><div id="progress-bar" class="progress-bar"></div></div>
-        <p id="progress-text" class="muted small"></p>
-        <ul id="fields" class="fields"></ul>
-        <pre id="json" class="json" hidden></pre>
+        <div id="groups" class="groups"></div>
+        <details class="tech">
+          <summary>Structured data (JSON)</summary>
+          <p class="tech-note">Confirmed values only. <code>null</code> = not known yet · <code>[]</code> = confirmed none.</p>
+          <pre id="json"></pre>
+        </details>
       </div>
 
-      <div class="card">
-        <div class="card-head">
-          <h2>Draft document</h2>
-          <button id="download" class="btn btn-ghost btn-sm" type="button">Download .md</button>
+      <div id="document-view" class="side-view" role="tabpanel" aria-labelledby="tab-document" hidden>
+        <div class="doc-toolbar">
+          <div id="doc-status" class="doc-status"></div>
+          <div class="doc-actions">
+            <button id="copy" class="btn btn-ghost btn-sm" type="button" title="Copy as text">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h8"/></svg><span>Copy</span>
+            </button>
+            <button id="download" class="btn btn-ghost btn-sm" type="button" title="Download as Markdown">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg><span>.md</span>
+            </button>
+            <button id="print" class="btn btn-primary btn-sm" type="button" title="Print or save as PDF">
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 9V3h10v6M7 17H5a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v4a2 2 0 0 1-2 2h-2"/><rect x="7" y="14" width="10" height="7"/></svg><span>Save PDF</span>
+            </button>
+          </div>
         </div>
-        <article id="document" class="document"></article>
+        <article id="paper" class="paper"></article>
       </div>
-    </section>
+    </aside>
   </main>
+
+  <dialog id="restart-dialog" class="dialog">
+    <form method="dialog">
+      <h2>Start over?</h2>
+      <p>Your current answers and draft will be cleared. This can't be undone.</p>
+      <div class="dialog-actions">
+        <button class="btn btn-ghost" value="cancel">Keep going</button>
+        <button class="btn btn-danger" value="confirm">Start over</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
   <script src="/static/app.js"></script>
 </body>

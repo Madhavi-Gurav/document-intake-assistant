@@ -52,7 +52,7 @@ def create_app(llm_settings: LLMSettings | None = None, llm_client: LLMClient | 
     @app.exception_handler(LLMConfigurationError)
     def _not_configured(_: Request, exc: LLMConfigurationError) -> JSONResponse:
         log.error("LLM configuration error: %s", exc)
-        return _error(503, exc.code, f"{exc.user_message} ({exc})")
+        return _error(503, exc.code, exc.user_message)
 
     @app.exception_handler(TurnError)
     def _turn_failed(_: Request, exc: TurnError) -> JSONResponse:
