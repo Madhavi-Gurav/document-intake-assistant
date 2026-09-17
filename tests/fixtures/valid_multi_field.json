@@ -1,0 +1,8 @@
+{
+  "updates": {
+    "full_name": {"value": "Jane Smith", "status": "confirmed", "evidence": "I'm Jane Smith", "note": null},
+    "home_address": {"value": "12 Oak Lane, Leeds LS1 4AB", "status": "confirmed", "evidence": "I live at 12 Oak Lane, Leeds LS1 4AB", "note": null},
+    "has_children": {"value": false, "status": "confirmed", "evidence": "no children", "note": null},
+    "children": {"value": [], "status": "confirmed", "evidence": "no children", "note": null}
+  }
+}
