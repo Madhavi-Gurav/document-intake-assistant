@@ -208,9 +208,9 @@ test double. This keeps them deterministic and offline. They cover:
 - **Code-generated document, not LLM-generated.** The draft is legal-style text. Rendering it
   from a template guarantees it matches the preview and contains no invented clauses.
 - **Evidence and verbatim checks.** A cheap, explainable guard against hallucinated facts. The
-  cost: if a model paraphrases its evidence, a correct update can be rejected and the user gets
-  asked again. That failure is safe: the field stays unanswered and the assistant asks again, which is better
-  than silently storing a wrong fact. Rejections are logged on the server.
+  cost: if a model paraphrases its evidence, a correct update can be rejected. That failure is
+  safe: the field stays unanswered and the assistant asks again, which is better than silently
+  storing a wrong fact. Rejections are logged on the server.
 - **JSON mode is a nice extra, not something we depend on.** Not every model on NIM supports
   `response_format`. The client turns it off automatically after a `400` and relies on the
   prompt and the parser instead.
