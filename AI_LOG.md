@@ -174,7 +174,7 @@ away? **Decision: no.** Public repos are scanned for keys within minutes. Instea
 - `start.py` (with `start.bat` and `start.sh` wrappers) is a one-command launcher using only the
   standard library. It creates the venv, installs the dependencies, asks for a key once and
   opens the browser.
-- A key for reviewers is sent privately with the submission email.
+- A key for reviewers is shared privately in the submission document, not in the repository.
 
 **Output Claude questioned:** the first key check called NIM's `/v1/models` endpoint. Testing
 with `nvapi-bogus` showed that endpoint is **public**: it returned 82 models for a fake key, so
