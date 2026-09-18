@@ -100,7 +100,7 @@ Spain", "no children but … my son Tom", a correction to the executor, multi-fi
 "none".
 
 - **The key was fine; the models weren't all usable.**
-  - Listing models took 0.6 s.
+  - Real calls to other models succeeded, so the key itself worked.
   - `gpt-oss-20b` hung past 120 s on a trivial prompt.
   - The first default, `llama-3.3-70b-instruct`, returned **410 Gone** (retired).
   - Fixes: 410 now counts as a configuration error, and the default is now
@@ -165,6 +165,24 @@ a visible structured preview, and reviewers will want to see it.
    empty banner and a stray dot showed up. Fixed with a global `[hidden]` rule.
 2. The "just updated" row highlight replayed every time the user switched tabs.
 3. The finished state showed "View document" twice.
+
+## 8. Making it easy for reviewers to run
+
+**Question:** should the NIM key be shipped with the repo so reviewers can run it straight
+away? **Decision: no.** Public repos are scanned for keys within minutes. Instead:
+
+- `start.py` (with `start.bat` and `start.sh` wrappers) is a one-command launcher using only the
+  standard library. It creates the venv, installs the dependencies, asks for a key once and
+  opens the browser.
+- A key for reviewers is sent privately with the submission email.
+
+**Output Claude questioned:** the first key check called NIM's `/v1/models` endpoint. Testing
+with `nvapi-bogus` showed that endpoint is **public**: it returned 82 models for a fake key, so
+the check proved nothing. It was replaced with a one-token chat request, which correctly tells
+apart a rejected key (401), a working key, and a retired model (410).
+
+**Also found:** in the fresh-clone test, the launcher's `•` and `✓` characters garbled or could
+crash the Windows cp1252 console, so all launcher output is now plain ASCII.
 
 ---
 

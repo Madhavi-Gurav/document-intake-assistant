@@ -38,7 +38,7 @@ class LLMSettings(BaseModel):
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
-    llm_provider: str = "gemini"
+    llm_provider: str = "nvidia"
     llm_api_key: SecretStr | None = None
     llm_model: str | None = None
     llm_base_url: str | None = None

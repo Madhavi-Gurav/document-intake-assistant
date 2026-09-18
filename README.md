@@ -9,21 +9,49 @@ OpenAI-compatible chat-completions APIs.
 
 ---
 
-## Quick start
+## Quick start (one command)
 
-Requirements: Python 3.11+.
+You need **Python 3.11+** and a **free LLM API key**. An NVIDIA key takes about 2 minutes:
+sign in at [build.nvidia.com](https://build.nvidia.com), open any model and click *Get API Key*.
+
+```bash
+git clone https://github.com/Madhavi-Gurav/document-intake-assistant.git
+cd document-intake-assistant
+python start.py
+```
+
+On Windows you can also double-click **`start.bat`**. On macOS or Linux, run `./start.sh`.
+
+The launcher:
+- creates `.venv` and installs the dependencies
+- asks for your API key once, checks it with a one-token request, and saves it to `.env`
+  (git-ignored)
+- starts the server and opens <http://localhost:8000>
+
+After that, `python start.py` starts the app straight away.
+
+> **Reviewers:** if you'd rather not create a key, use the one sent with the submission email.
+> Paste it when `start.py` asks for it. Keys are never committed to this repository.
+
+<details>
+<summary>Manual setup, or Docker</summary>
 
 ```bash
 python -m venv .venv
 # Windows: .venv\Scripts\activate    macOS/Linux: source .venv/bin/activate
 pip install -r requirements.txt
-
-cp .env.example .env        # then edit .env: set LLM_PROVIDER and LLM_API_KEY
-python -m scripts.check_llm # optional: one live call to confirm the key/model work
+cp .env.example .env         # then set LLM_API_KEY (and LLM_PROVIDER=gemini for Google)
+python -m scripts.check_llm  # optional: one live call to confirm the key and model work
 uvicorn app.main:app --reload
 ```
 
-Open <http://localhost:8000>.
+Docker:
+
+```bash
+docker build -t intake .
+docker run --rm -p 8000:8000 -e LLM_API_KEY=your-key intake
+```
+</details>
 
 Run the tests (no API key or network needed):
 
@@ -35,7 +63,7 @@ pytest
 
 | Variable | Default | Notes |
 |---|---|---|
-| `LLM_PROVIDER` | `gemini` | `nvidia` (NVIDIA NIM) or `gemini` (Google AI Studio) |
+| `LLM_PROVIDER` | `nvidia` | `nvidia` (NVIDIA NIM) or `gemini` (Google AI Studio) |
 | `LLM_API_KEY` | — | **Required.** Get one at build.nvidia.com or aistudio.google.com/apikey |
 | `LLM_MODEL` | `nvidia/nemotron-3-super-120b-a12b` / `gemini-2.5-flash` | Any chat model the provider serves |
 | `LLM_BASE_URL` | provider preset | Override for other OpenAI-compatible gateways |
@@ -108,8 +136,8 @@ One turn:
    as `[not yet provided]` or `[awaiting confirmation]`, never as facts.
 
 A turn is **atomic**. If extraction fails (timeout, rate limit, bad output twice), nothing is
-saved, not even the user's message. The API returns an error and the UI puts the text back in
-the input box so the user can resend.
+saved, not even the user's message. The API returns an error, and the UI keeps the message
+with **Retry** and **Edit** buttons.
 
 ### User interface
 
@@ -176,6 +204,7 @@ app/
   config.py     env settings and provider presets
 frontend/       static HTML/CSS/JS (no build step): chat, live details, document preview
 scripts/        check_llm.py: live smoke test for your key/model
+start.py        one-command setup + launch (start.bat / start.sh wrappers), Dockerfile
 tests/          pytest suite + fixtures/ (recorded valid, ambiguous and malformed model outputs)
 ```
 
