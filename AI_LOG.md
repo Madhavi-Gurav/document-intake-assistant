@@ -184,6 +184,29 @@ apart a rejected key (401), a working key, and a retired model (410).
 **Also found:** in the fresh-clone test, the launcher's `•` and `✓` characters garbled or could
 crash the Windows cp1252 console, so all launcher output is now plain ASCII.
 
+## 9. Final check: the provider changed its behaviour
+
+While taking the README screenshots, every turn started failing. Findings:
+
+- **The server on port 8000 was an orphaned process** from an earlier session and was
+  returning `llm_not_configured`. It was restarted cleanly.
+- **The real cause: NVIDIA changed how `nemotron-3-super` behaves.** It now "thinks" by default
+  and puts that reasoning at the start of the answer (for example, "Okay, the user said hi…"),
+  ahead of the JSON the app expects.
+- **Two fixes:**
+  - The NVIDIA preset now sends `chat_template_kwargs: {enable_thinking: false}`. Extraction
+    doesn't need reasoning.
+  - A safety net strips a leading `<think>…</think>` block, or reasoning that duplicates
+    `reasoning_content`, from `content`.
+- **Re-ran the 10-turn live conversation.** All extractions were correct, and it took **33 s
+  instead of about 100 s**. The "none must be said" rule rejected a hallucinated
+  `additional_wishes: []` in a live run.
+- **Prompt tweak.** Gift items were being shortened ("watch" instead of "my watch"), so the
+  document read "I give watch to Tom". Rule 9 now keeps the user's wording.
+
+**Lesson:** a hosted model can change under you without notice. That argues for the eval set
+listed in the production improvements, run on a schedule.
+
 ---
 
 <!-- Add your own entries below: prompts you tried, things you changed after trying the live model. -->

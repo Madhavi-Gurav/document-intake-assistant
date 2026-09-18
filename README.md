@@ -1,15 +1,25 @@
 # 📄 Document Intake Assistant
 
-![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
-![FastAPI](https://img.shields.io/badge/FastAPI-backend-009688?logo=fastapi&logoColor=white)
-![LLM](https://img.shields.io/badge/LLM-NVIDIA%20NIM%20%7C%20Gemini-76B900?logo=nvidia&logoColor=white)
-![Tests](https://img.shields.io/badge/tests-58%20passing-2ea44f)
+**Python · FastAPI · NVIDIA NIM / Google Gemini · vanilla JS · 60 automated tests**
 
 A web app that **interviews the user in a chat**, stores the answers in a **validated structured
 state**, and generates a draft **Personal Wishes Document**. Built for the Wenup engineering test.
 
 > [!NOTE]
 > The document is **fictional and not legal advice**. The app says so in the UI and in the document itself.
+
+![Assistant asking a follow-up about a contradiction, with the live details panel](docs/screenshots/1-follow-up-on-contradiction.png)
+
+<details>
+<summary>📸 More screenshots</summary>
+
+| Correction + live details | Draft document | Mobile (dark mode) |
+|---|---|---|
+| ![](docs/screenshots/2-correction-and-live-details.png) | ![](docs/screenshots/3-draft-document.png) | ![](docs/screenshots/4-mobile-dark.png) |
+
+</details>
+
+📂 **Sample output** from a real session: [conversation](docs/sample-output/conversation.md) · [structured state (JSON)](docs/sample-output/structured-state.json) · [document (.md)](docs/sample-output/personal-wishes-draft.md) · [document (PDF)](docs/sample-output/personal-wishes-draft.pdf)
 
 ---
 
@@ -63,7 +73,7 @@ The app calls a real LLM through an OpenAI-compatible API. Keys are **never comm
 
 | Option | How |
 |---|---|
-| **Use the key from our email** | Paste it when `start.py` asks for it. |
+| **Use the key in our submission document** | Paste it when `start.py` asks for it. |
 | **NVIDIA NIM** (default, free) | [build.nvidia.com](https://build.nvidia.com) → sign in → open any model → *Get API Key* (`nvapi-…`) |
 | **Google AI Studio** (free) | [aistudio.google.com/apikey](https://aistudio.google.com/apikey). Choose option **2** in `start.py` |
 
@@ -76,7 +86,7 @@ The app calls a real LLM through an OpenAI-compatible API. Keys are **never comm
 | `LLM_API_KEY` | — | **Required** |
 | `LLM_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Any chat model the provider serves |
 | `LLM_TIMEOUT_SECONDS` | `30` | Per attempt (up to 3 attempts on timeouts, 429s and 5xx) |
-| `LLM_EXTRA_BODY` | — | Extra JSON for each request, e.g. `{"chat_template_kwargs": {"enable_thinking": false}}` |
+| `LLM_EXTRA_BODY` | NVIDIA: thinking off | Extra JSON for each request. The NVIDIA default is `{"chat_template_kwargs": {"enable_thinking": false}}` |
 | `LLM_BASE_URL` | preset | Any other OpenAI-compatible endpoint |
 
 </details>
@@ -171,8 +181,9 @@ app/
 ├── llm/         provider client, prompts, response contract + parser
 └── documents/   document generator
 frontend/        HTML / CSS / JS (no build step)
-tests/           58 tests + fixtures of valid, ambiguous and malformed model output
+tests/           60 tests + fixtures of valid, ambiguous and malformed model output
 start.py         one-command setup and launch
+docs/            screenshots + sample output
 ```
 
 ---

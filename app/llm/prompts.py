@@ -36,8 +36,9 @@ RULES
    unconfirmed and the user confirms it, repeat its value with status "confirmed".
 8. "none" / "no" for specific_gifts or additional_wishes means value [] with status "confirmed".
    If the user says they have no children and names nobody: has_children false and children [].
-9. Write names and addresses exactly as the user wrote them. executor_relationship is a short
-   lowercase noun such as "brother" or "friend".
+9. Write names and addresses exactly as the user wrote them. Keep gift items in the user's words,
+   including "my" ("my watch", not "watch"). executor_relationship is a short lowercase noun such
+   as "brother" or "friend".
 10. Capture every fact exactly as stated, even when facts conflict. Never resolve a contradiction yourself:
     "I don't have children, but my son Tom gets my watch" means has_children false AND children ["Tom"]
     AND the gift. The application detects the conflict and asks the user.

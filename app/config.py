@@ -10,16 +10,20 @@ from pydantic import BaseModel, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Both providers expose an OpenAI-compatible chat-completions API.
-PROVIDER_PRESETS: dict[str, dict[str, str]] = {
+PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
     "gemini": {
         "label": "Google AI Studio",
         "base_url": "https://generativelanguage.googleapis.com/v1beta/openai",
         "model": "gemini-2.5-flash",
+        "extra_body": {},
     },
     "nvidia": {
         "label": "NVIDIA NIM",
         "base_url": "https://integrate.api.nvidia.com/v1",
         "model": "nvidia/nemotron-3-super-120b-a12b",
+        # Nemotron "thinks" by default: slow, and the reasoning can leak into the answer.
+        # Extraction is a structured task that doesn't need it. Override with LLM_EXTRA_BODY.
+        "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},
     },
 }
 
@@ -51,12 +55,12 @@ class Settings(BaseSettings):
         problem = None
         if preset is None:
             problem = f"Unknown LLM_PROVIDER '{self.llm_provider}'. Use one of: {', '.join(PROVIDER_PRESETS)}."
-            preset = {"label": provider or "unknown", "base_url": "", "model": ""}
+            preset = {"label": provider or "unknown", "base_url": "", "model": "", "extra_body": {}}
         key = self.llm_api_key if self.llm_api_key and self.llm_api_key.get_secret_value().strip() else None
         if problem is None and key is None:
             problem = "LLM_API_KEY is not set. Copy .env.example to .env and add your API key."
-        extra_body: dict[str, Any] = {}
-        if self.llm_extra_body and self.llm_extra_body.strip():
+        extra_body: dict[str, Any] = dict(preset["extra_body"])
+        if self.llm_extra_body is not None and self.llm_extra_body.strip():
             try:
                 extra_body = json.loads(self.llm_extra_body)
             except json.JSONDecodeError as exc:

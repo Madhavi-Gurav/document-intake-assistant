@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import time
 from typing import Any
 
@@ -52,12 +53,13 @@ class OpenAICompatibleClient:
         self._raise_for_status(response)
         try:
             choice = response.json()["choices"][0]
-            content = choice["message"].get("content") or ""
+            message = choice["message"]
+            content = message.get("content") or ""
         except (ValueError, KeyError, IndexError, TypeError) as exc:
             raise LLMUnavailableError(f"unexpected response body from provider: {exc!r}") from exc
         if choice.get("finish_reason") == "length":
             log.warning("Model output hit max_tokens=%s; it may be truncated", max_tokens)
-        return content
+        return _strip_reasoning(content, message.get("reasoning_content"))
 
     def _post(self, body: dict[str, Any]) -> httpx.Response:
         for attempt in range(1, MAX_ATTEMPTS + 1):
@@ -98,3 +100,14 @@ class OpenAICompatibleClient:
 def _error_text(response: httpx.Response) -> str:
     text = response.text.strip().replace("\n", " ")
     return text[:500]
+
+
+_THINK_BLOCK = re.compile(r"^\s*<think>.*?</think>\s*", re.DOTALL)
+
+
+def _strip_reasoning(content: str, reasoning: str | None) -> str:
+    """Some reasoning models echo their chain of thought into `content`; keep only the answer."""
+    content = _THINK_BLOCK.sub("", content)
+    if reasoning and content.lstrip().startswith(reasoning.strip()[:200]):
+        content = content.lstrip()[len(reasoning.strip()):]
+    return content.strip()

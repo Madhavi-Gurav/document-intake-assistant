@@ -95,3 +95,21 @@ def test_unknown_provider_is_reported():
 def test_invalid_extra_body_is_reported():
     llm = Settings(_env_file=None, llm_provider="nvidia", llm_api_key="k", llm_extra_body="{not json").llm()
     assert "LLM_EXTRA_BODY" in llm.problem
+
+
+def test_nvidia_preset_disables_thinking_unless_overridden(monkeypatch):
+    monkeypatch.delenv("LLM_EXTRA_BODY", raising=False)
+    default = Settings(_env_file=None, llm_provider="nvidia", llm_api_key="k").llm()
+    assert default.extra_body == {"chat_template_kwargs": {"enable_thinking": False}}
+    custom = Settings(_env_file=None, llm_provider="nvidia", llm_api_key="k", llm_extra_body='{"x": 1}').llm()
+    assert custom.extra_body == {"x": 1}
+
+
+def test_reasoning_echoed_into_content_is_stripped():
+    thought = "Okay, the user said hi. I should reply with JSON."
+    body = {"choices": [{"message": {"content": thought + '\n\n{"updates": {}}', "reasoning_content": thought}}]}
+    client = make_client(lambda r: httpx.Response(200, json=body))
+    assert client.complete("s", "u", json_output=True, max_tokens=10) == '{"updates": {}}'
+
+    tagged = {"choices": [{"message": {"content": '<think>hmm</think>\n{"a": 1}'}}]}
+    assert make_client(lambda r: httpx.Response(200, json=tagged)).complete("s", "u", json_output=True, max_tokens=10) == '{"a": 1}'

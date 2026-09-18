@@ -1,0 +1,20 @@
+{
+  "full_name": "Jane Smith",
+  "home_address": "12 Oak Lane, Leeds LS1 4AB",
+  "covers_worldwide_assets": true,
+  "has_children": true,
+  "children": [
+    "Tom"
+  ],
+  "executor": {
+    "name": "Sarah Jones",
+    "relationship": "friend"
+  },
+  "specific_gifts": [
+    {
+      "item": "my watch",
+      "recipient": "Tom"
+    }
+  ],
+  "additional_wishes": []
+}
