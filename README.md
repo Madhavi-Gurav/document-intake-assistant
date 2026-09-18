@@ -5,6 +5,8 @@
 A web app that **interviews the user in a chat**, stores the answers in a **validated structured
 state**, and generates a draft **Personal Wishes Document**. Built for the Wenup engineering test.
 
+🌐 **Live demo:** https://document-intake-assistant.vercel.app
+
 > [!NOTE]
 > The document is **fictional and not legal advice**. The app says so in the UI and in the document itself.
 
