@@ -122,3 +122,50 @@ def test_later_correction_to_no_children_clears_stale_names():
 def test_has_children_with_empty_names_is_flagged():
     state, _ = apply_updates(WishesState(), [upd("has_children", True, "yes"), upd("children", [], "none")])
     assert state.children.status == FieldStatus.UNCONFIRMED
+
+
+def test_child_relationship_elsewhere_contradicts_no_children():
+    """"My son Tom" as executor never reaches the children list, so the conflict must be
+    caught from the relationship instead."""
+    state, _ = apply_updates(WishesState(), [upd("has_children", False, "I have no children")])
+    state, changes = apply_updates(
+        state,
+        [upd("executor_name", "Tom", "My son Tom"), upd("executor_relationship", "son", "My son Tom")],
+    )
+    assert state.has_children.status == FieldStatus.UNCONFIRMED
+    assert "Tom" in state.has_children.note
+    assert outstanding_fields(state)[0] == "has_children"
+    assert any(c.field == "has_children" and c.kind == "flagged" for c in changes)
+
+
+def test_child_relationship_in_a_gift_recipient_contradicts_no_children():
+    state, _ = apply_updates(WishesState(), [upd("has_children", False, "no children")])
+    gift = [{"item": "my watch", "recipient": "my son Tom"}]
+    state, _ = apply_updates(state, [upd("specific_gifts", gift, "my watch to my son Tom")])
+    assert state.has_children.status == FieldStatus.UNCONFIRMED
+
+
+def test_child_relationship_given_before_the_children_question_is_still_caught():
+    state, _ = apply_updates(
+        WishesState(),
+        [upd("executor_name", "Ella", "my daughter Ella"), upd("executor_relationship", "daughter", "my daughter Ella")],
+    )
+    state, _ = apply_updates(state, [upd("has_children", False, "no children")])
+    assert state.has_children.status == FieldStatus.UNCONFIRMED
+    assert "Ella" in state.has_children.note
+
+
+def test_reanswering_no_children_settles_the_relationship_conflict():
+    """The user's direct answer wins, so the same question is never asked twice."""
+    state, _ = apply_updates(WishesState(), [upd("has_children", False, "no children")])
+    state, _ = apply_updates(state, [upd("executor_relationship", "son", "my son Tom")])
+    assert state.has_children.status == FieldStatus.UNCONFIRMED
+    state, _ = apply_updates(state, [upd("has_children", False, "no, no children")])
+    assert state.has_children.status == FieldStatus.CONFIRMED and state.has_children.note is None
+
+
+def test_relatives_who_are_not_children_do_not_raise_a_conflict():
+    for relationship in ["son-in-law", "daughter in law", "grandson", "brother", "friend"]:
+        state, _ = apply_updates(WishesState(), [upd("has_children", False, "no children")])
+        state, _ = apply_updates(state, [upd("executor_relationship", relationship, "my " + relationship)])
+        assert state.has_children.status == FieldStatus.CONFIRMED, relationship

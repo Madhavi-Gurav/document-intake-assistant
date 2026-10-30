@@ -209,4 +209,40 @@ listed in the production improvements, run on a schedule.
 
 ---
 
+## 10. A contradiction the rules could not see
+
+I tested the app by saying "I have no children", then answering the executor question with
+"my son Tom". It was accepted without a murmur: `has_children` stayed confirmed `false` while
+the executor's relationship was recorded as `son`.
+
+**Why it slipped through.** `enforce_consistency` only ever compared `has_children` against the
+`children` list. But "my son Tom" as an executor is extracted as
+`executor_name="Tom", executor_relationship="son"` — it never touches the children field, so
+the contradiction was spread across two fields that no rule compared. The same hole applied to
+gift recipients ("my watch to my son Tom").
+
+**The fix.** A rule that looks for child words (`son`, `daughter`, `child`, `kid`) in the
+executor relationship and in gift recipients, and flags `has_children` as unconfirmed when the
+user has said they have none. Word boundaries keep `grandson` and `stepdaughter` out, and a
+lookahead keeps `son-in-law` out.
+
+**The part that needed thought: not asking twice.** The obvious version loops. Flag the
+conflict, the user answers "no, still no children", the mention is still on record, so the rule
+fires again, forever — the same trap as the stale-names bug in section 5. The rule now fires
+only when the child mention is *new*, or when the user is answering the children question for
+the first time. A later re-answer is a direct statement from the user and is taken at face
+value, which both breaks the loop and matches how the rest of the app treats corrections.
+`enforce_consistency` now receives the pre-turn state so it can tell a first answer from a
+re-answer.
+
+Five tests cover it: the reported case, the gift-recipient variant, the reverse order (mention
+first, then "no children"), the re-answer settling it, and relatives who are *not* children.
+
+**Lesson.** My contradiction checking was written around one pair of fields because that was the
+example in my head. The real rule is about a *fact* — "this person is my child" — which can
+arrive through any field. Worth asking of every validation rule: what else could carry this
+same fact?
+
+---
+
 <!-- Add your own entries below: prompts you tried, things you changed after trying the live model. -->

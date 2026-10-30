@@ -25,6 +25,14 @@ VERBATIM_FIELDS = {"full_name", "home_address", "children", "executor_name"}
 LIST_FIELDS = {"children", "specific_gifts", "additional_wishes"}
 _NEGATION = re.compile(r"\b(no|none|nothing|not|nope|nil|zero|neither|nor|without|dont)\b|n['’]t\b", re.IGNORECASE)
 
+# Words that describe someone as the user's own child. Used to catch a contradiction spread
+# across fields: "no children", then an executor or gift recipient described as a son or
+# daughter. Word boundaries exclude "grandson" and "stepdaughter"; the lookahead excludes
+# "son-in-law" and "daughter in law", who are not the user's children.
+_CHILD_RELATION = re.compile(
+    r"\b(son|daughter|child|children|kid|kids)\b(?!\s*[-\s]in[-\s]law)", re.IGNORECASE
+)
+
 
 class FieldUpdate(BaseModel):
     field: str
@@ -172,12 +180,39 @@ def apply_updates(state: WishesState, updates: list[FieldUpdate]) -> tuple[Wishe
             ),
         )
 
-    changes.extend(enforce_consistency(new_state, updated={u.field for u in updates}))
+    changes.extend(enforce_consistency(new_state, updated={u.field for u in updates}, previous=state))
     return new_state, changes
 
 
-def enforce_consistency(state: WishesState, updated: set[str] | frozenset[str] = frozenset()) -> list[AppliedChange]:
-    """Cross-field rules. Mutates `state`; returns any changes it made."""
+def _child_mentions(state: WishesState) -> list[str]:
+    """People described as the user's child somewhere other than the children field.
+
+    The extraction model reports relationships as the user phrased them, so "my son Tom" as
+    executor arrives as executor_relationship="son" — which the children list never sees.
+    """
+    mentions: list[str] = []
+    rel = state.executor_relationship
+    if rel.status == FieldStatus.CONFIRMED and rel.value and _CHILD_RELATION.search(str(rel.value)):
+        name = state.executor_name
+        who = str(name.value) if name.status == FieldStatus.CONFIRMED and name.value else "your executor"
+        mentions.append(f"{who} (your {rel.value})")
+
+    gifts = state.specific_gifts
+    if gifts.status == FieldStatus.CONFIRMED and gifts.value:
+        mentions += [g.recipient for g in gifts.value if _CHILD_RELATION.search(g.recipient)]
+    return mentions
+
+
+def enforce_consistency(
+    state: WishesState,
+    updated: set[str] | frozenset[str] = frozenset(),
+    previous: WishesState | None = None,
+) -> list[AppliedChange]:
+    """Cross-field rules. Mutates `state`; returns any changes it made.
+
+    `previous` is the state before this turn's updates, used to tell a first answer apart from
+    a re-answer so a contradiction is raised once rather than on every turn.
+    """
     changes: list[AppliedChange] = []
     has, kids = state.has_children, state.children
     kid_names = kids.value or []
@@ -213,5 +248,31 @@ def enforce_consistency(state: WishesState, updated: set[str] | frozenset[str] =
         note = "You said you have children, but no names were given. What are their names?"
         state.children = TrackedField[list[str]](value=[], status=FieldStatus.UNCONFIRMED, note=note, evidence=kids.evidence)
         changes.append(AppliedChange(field="children", kind="flagged", old_value=[], new_value=[], status=FieldStatus.UNCONFIRMED, note=note))
+
+    # Contradiction spread across fields: "no children", but someone in the document is described
+    # as the user's son or daughter. Raised when the child mention is new, or when the user is
+    # answering "do you have children?" for the first time with a mention already on record.
+    # A later re-answer is taken at face value, so the question is never asked twice.
+    current_has = state.has_children
+    if current_has.status == FieldStatus.CONFIRMED and current_has.value is False:
+        mentions = _child_mentions(state)
+        new_mention = bool(set(updated) & {"executor_relationship", "specific_gifts"})
+        first_answer = "has_children" in updated and (
+            previous is None or previous.has_children.status == FieldStatus.MISSING
+        )
+        if mentions and (new_mention or first_answer):
+            note = (
+                f"You said you have no children, but {' and '.join(mentions)} is described as your child. "
+                "Do you have children?"
+            )
+            state.has_children = TrackedField[bool](
+                value=False, status=FieldStatus.UNCONFIRMED, note=note, evidence=current_has.evidence
+            )
+            changes.append(
+                AppliedChange(
+                    field="has_children", kind="flagged", old_value=False, new_value=False,
+                    status=FieldStatus.UNCONFIRMED, note=note,
+                )
+            )
 
     return changes
