@@ -245,4 +245,40 @@ same fact?
 
 ---
 
+## 11. The default model was retired, and the lesson from section 9 repeated itself
+
+While checking the deployed demo, every message came back `503 llm_not_configured`, even
+though `/api/health` reported the model as configured.
+
+**Diagnosis.** The key was fine. `nvidia/nemotron-3-super-120b-a12b` now returns
+`404 ... Function '...': Not found for account ...` on `/chat/completions`. It is still listed
+by `/v1/models` — which, as section 8 established, is a public endpoint that proves nothing
+about what an account can actually call. The app classified the 404 correctly as a
+configuration error rather than a transient one, so it did not pointlessly retry; the only
+weakness was the user-facing wording, which blames `.env` when the real cause is a retired
+model.
+
+**Fix.** Probed the candidates with a real one-token chat request instead of trusting the model
+list. `nvidia/nemotron-3.5-lightning-30b-a3b` answers in about 0.3 s and is now the default;
+`LLM_MODEL` still overrides it.
+
+**Re-verified the whole flow on the new model**, including the contradiction from section 10:
+"My son Tom" after "No children" was flagged and asked about, and "Sorry, I meant my brother
+Tom" resolved it and set the relationship back to confirmed.
+
+**Two things the smaller model does worse**, both caught by existing guards rather than
+reaching the user:
+- It re-proposes unchanged fields with evidence quoted from earlier messages. The evidence rule
+  rejects all of them, so nothing bad is stored — five rejections on one turn, invisible in the UI.
+- It is over-cautious about `full_name`, marking a clearly complete "Jane Smith" as unconfirmed,
+  which costs one extra confirmation step.
+
+**Lesson, again, and more sharply than in section 9.** This is the second time a hosted model
+changed under the project without notice, and this time it broke the live demo silently. A
+pinned model name is a dependency with no lockfile. The eval set in the production notes is the
+real answer; the cheap interim version is a scheduled one-request health check against the
+configured model, so the failure is noticed before a user finds it.
+
+---
+
 <!-- Add your own entries below: prompts you tried, things you changed after trying the live model. -->

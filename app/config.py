@@ -20,7 +20,10 @@ PROVIDER_PRESETS: dict[str, dict[str, Any]] = {
     "nvidia": {
         "label": "NVIDIA NIM",
         "base_url": "https://integrate.api.nvidia.com/v1",
-        "model": "nvidia/nemotron-3-super-120b-a12b",
+        # NIM retires models without notice: the previous default, nemotron-3-super-120b-a12b,
+        # started returning 404 for the account while still being listed by /v1/models.
+        # Override with LLM_MODEL if this one goes the same way.
+        "model": "nvidia/nemotron-3.5-lightning-30b-a3b",
         # Nemotron "thinks" by default: slow, and the reasoning can leak into the answer.
         # Extraction is a structured task that doesn't need it. Override with LLM_EXTRA_BODY.
         "extra_body": {"chat_template_kwargs": {"enable_thinking": False}},

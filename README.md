@@ -86,7 +86,7 @@ The app calls a real LLM through an OpenAI-compatible API. Keys are **never comm
 |---|---|---|
 | `LLM_PROVIDER` | `nvidia` | `nvidia` or `gemini` |
 | `LLM_API_KEY` | — | **Required** |
-| `LLM_MODEL` | `nvidia/nemotron-3-super-120b-a12b` | Any chat model the provider serves |
+| `LLM_MODEL` | `nvidia/nemotron-3.5-lightning-30b-a3b` | Any chat model the provider serves |
 | `LLM_TIMEOUT_SECONDS` | `30` | Per attempt (up to 3 attempts on timeouts, 429s and 5xx) |
 | `LLM_EXTRA_BODY` | NVIDIA: thinking off | Extra JSON for each request. The NVIDIA default is `{"chat_template_kwargs": {"enable_thinking": false}}` |
 | `LLM_BASE_URL` | preset | Any other OpenAI-compatible endpoint |
@@ -198,8 +198,9 @@ docs/            screenshots + sample output
   always matches the preview.
 - **Strict grounding checks.** They sometimes make the assistant re-ask a question, but they
   never store a wrong fact.
-- **Tested live on NVIDIA NIM.** `nemotron-3-super-120b` got every extraction right in a
-  10-turn test. Other models' results are in [AI_LOG.md](AI_LOG.md).
+- **Tested live on NVIDIA NIM.** `nemotron-3.5-lightning-30b-a3b` is the default and is
+  verified against a 10-turn script. NIM retires models without notice, so `LLM_MODEL`
+  overrides it. Other models' results are in [AI_LOG.md](AI_LOG.md).
 
 ## 🔭 Production improvements
 
