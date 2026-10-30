@@ -23,6 +23,20 @@ class LLMConfigurationError(LLMError):
     user_message = "The language model is not configured correctly. Check the server's .env settings."
 
 
+class LLMModelUnavailableError(LLMConfigurationError):
+    """The endpoint works but the configured model does not exist for this account.
+
+    Hosted providers retire models without notice, and a retired model is still listed by
+    `/v1/models`, so this needs to be said plainly rather than blamed on the API key.
+    """
+
+    code = "llm_model_unavailable"
+    user_message = (
+        "The configured language model is unavailable — it may have been retired by the provider. "
+        "Set LLM_MODEL to a model this account can use."
+    )
+
+
 class LLMUnavailableError(LLMError):
     """Timeouts, network failures, rate limits, provider 5xx. Worth retrying later."""
 

@@ -10,7 +10,7 @@ from typing import Any
 import httpx
 
 from app.config import LLMSettings
-from app.llm.base import LLMConfigurationError, LLMError, LLMUnavailableError
+from app.llm.base import LLMConfigurationError, LLMError, LLMModelUnavailableError, LLMUnavailableError
 
 log = logging.getLogger(__name__)
 
@@ -91,7 +91,7 @@ class OpenAICompatibleClient:
         if status in (401, 403):
             raise LLMConfigurationError(f"API key rejected. {detail}")
         if status in (404, 410):
-            raise LLMConfigurationError(f"Model '{self.model}' or endpoint not found (or retired). {detail}")
+            raise LLMModelUnavailableError(f"Model '{self.model}' or endpoint not found (or retired). {detail}")
         if status == 429 or status >= 500:
             raise LLMUnavailableError(detail)
         raise LLMError(detail)
